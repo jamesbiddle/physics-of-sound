@@ -1,7 +1,6 @@
 import numpy as np
-from numpy import sin, cos, arccos, arcsin, pi
+from numpy import sin, cos, pi
 from numpy.random import rand
-from math import floor, ceil
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from matplotlib.widgets import Slider
@@ -33,35 +32,40 @@ class Animator:
         self.plots = {}
         self.widgets = {}
 
-    def add_simulation(self, key, *args, **kwargs):
-        try:
-            if key in self.simulations:
-                raise KeyError(f'Key {key} already exists, ignoring.')
-            self.simulations[key] = Simulation(*args, **kwargs)
-        except KeyError as e:
-            print(e)
+        self.key = 1
+
+    def add_simulation(self, *args, **kwargs):
+        self.simulations[self.key] = Simulation(*args, **kwargs)
+        self.key += 1
 
     def remove_simulation(self, key):
         del self.simulations[key]
 
     def run(self):
+        # Close all currently running simulations
+        plt.close('all')
         self.setup_plot()
         self.p_animation = animation.FuncAnimation(self.fig,
                                                    self.p_update,
-                                                   interval=5,
+                                                   interval=20,
                                                    repeat=True,
+                                                   repeat_delay=5,
                                                    frames=100,
                                                    blit=True)
 
         self.f_animation = animation.FuncAnimation(self.fig,
                                                    self.f_update,
-                                                   interval=5,
+                                                   interval=20,
                                                    repeat=True,
+                                                   repeat_delay=5,
                                                    frames=100,
                                                    blit=True)
 
-        plt.show()
-        return self.p_animation
+        # plt.show()
+        return self.fig
+
+    def get_interval(self):
+        periods = [2 * pi / s.w for s in self.simulations]
 
     def setup_plot(self):
         n_sim = len(self.simulations)
@@ -143,7 +147,7 @@ class Animator:
 
 
 class Simulation:
-    def __init__(self, p0=1, l=1, f=1, n=100, width=2, height=1):
+    def __init__(self, p0=0.5, l=1, f=1, n=500, width=2, height=1):
         """Initialise the simulation
 
         :param p0: Pressure of the sound wave
@@ -210,10 +214,10 @@ class Simulation:
 if __name__ == '__main__':
     # sim = Simulation(0.1, 1, 0.5, 2000, width=2)
     sim = Animator()
-    # sim.add_simulation(1, p0=0.1, l=0.5, f=0.5, n=1000)
-    sim.add_simulation(2, p0=0.5, l=1, f=1, n=1000)
-    # sim.add_simulation(3, p0=0.5, l=0.5, f=1, n=1000, width=2)
+    sim.add_simulation()
     anim = sim.run()
+    plt.show()
+
     out_dir = './output/'
     filename = os.path.join(out_dir, 'animation.gif')
     # anim.save(filename,
