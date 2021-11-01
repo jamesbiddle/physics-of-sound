@@ -4,16 +4,8 @@ from numpy.random import rand
 from math import floor, ceil
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
+from matplotlib.widgets import Slider
 import os
-
-
-def sample_sin(k, a=None):
-    if a is None:
-        a = pi / k
-
-    y = rand()
-    x = arccos(1 - (1 - cos(k * a)) * y) / k
-    return x
 
 
 class Particle:
@@ -28,7 +20,7 @@ class Particle:
         self.y = y0
 
     def set_pos(self, t):
-        self.x = self.x0 - (self.p / self.k) * sin(self.k * self.x0 - self.w * t)
+        self.x = self.x0 + (self.p / self.k) * cos(self.k * self.x0 - self.w * t)
 
     def __str__(self):
         return f'x0 = {self.x0}, y0 = {self.y0}'
@@ -37,50 +29,121 @@ class Particle:
 class Animator:
     def __init__(self):
         self.simulations = {}
-        self.scatters = []
+        self.scatters = {}
+        self.plots = {}
+        self.widgets = {}
 
     def add_simulation(self, key, *args, **kwargs):
-        self.simulations[key] = Simulation(*args, **kwargs)
+        try:
+            if key in self.simulations:
+                raise KeyError(f'Key {key} already exists, ignoring.')
+            self.simulations[key] = Simulation(*args, **kwargs)
+        except KeyError as e:
+            print(e)
 
     def remove_simulation(self, key):
         del self.simulations[key]
 
     def run(self):
-        n_sim = len(self.simulations)
-        # n_rows = ceil(np.sqrt(n_sim))
-        # n_cols = ceil(n_sim / n_rows)
-
-        # self.fig, self.axes = plt.subplots(n_rows, n_cols)
-        self.fig, self.axes = plt.subplots(n_sim)
         self.setup_plot()
-        self.animation =animation.FuncAnimation(self.fig,
-                                                sim.update,
-                                                interval=5,
-                                                repeat=False,
-                                                frames=50,
-                                                # save_count=100,
-                                                blit=True)
-        # plt.show()
-        return self.animation
+        self.p_animation = animation.FuncAnimation(self.fig,
+                                                   self.p_update,
+                                                   interval=5,
+                                                   repeat=True,
+                                                   frames=100,
+                                                   blit=True)
+
+        self.f_animation = animation.FuncAnimation(self.fig,
+                                                   self.f_update,
+                                                   interval=5,
+                                                   repeat=True,
+                                                   frames=100,
+                                                   blit=True)
+
+        plt.show()
+        return self.p_animation
 
     def setup_plot(self):
-        for ax, key in zip(self.axes.flatten(), self.simulations):
+        n_sim = len(self.simulations)
+        widths = [1, 15]
+        heights = n_sim * [4, 1]
+
+        self.fig = plt.figure(constrained_layout=True)
+        gs = self.fig.add_gridspec(2 * n_sim, 2,
+                                   width_ratios=widths,
+                                   height_ratios=heights)
+        for i, key in enumerate(self.simulations):
+            ax_sim, ax_func, ax_slider = self.add_sim_grid(gs, i)
+
+            # Setup particle sim
             sim = self.simulations[key]
             x, y = sim.initial_positions()
-            self.scatters.append(ax.scatter(x, y))
-            ax.set_xlim(0, sim.width)
+            n_part = sim.n
+            colours = n_part * [(0, 0, 1)]
+            colours[-1] = (1, 0, 0)
+            self.scatters[key] = ax_sim.scatter(x, y, c=colours)
+            ax_sim.set_xlim(0, sim.width)
+            ax_sim.get_xaxis().set_visible(False)
+            ax_sim.get_yaxis().set_visible(False)
 
-    def update(self, j):
-        for i, (ax, key) in enumerate(zip(self.axes.flatten(), self.simulations)):
+            # Setup pressure function
+            y = sim.pressure()
+            self.plots[key], = ax_func.plot(sim.x_range, y)
+            ax_func.set_ylim(-1, 1)
+            ax_func.set_xlim(0, sim.width)
+            ax_func.set_ylabel('Pressure')
+            ax_func.set_xlabel('Position')
+
+            # Set slider bars
+            self.widgets[key] = self.add_slider(ax_slider, key)
+
+    def add_slider(self, ax, key):
+        sim = self.simulations[key]
+        p_slider = Slider(
+                ax=ax,
+                label='Pressure',
+                valmin=0,
+                valmax=1,
+                valinit=sim.p0,
+                orientation='vertical'
+            )
+
+        def update(val):
+            slider = self.widgets[key]
+            sim.p0 = slider.val
+            for p in sim.particles:
+                p.p = slider.val
+            self.fig.canvas.draw_idle()
+
+        p_slider.on_changed(update)
+        return p_slider
+
+    def add_sim_grid(self, gs, i):
+        ax1 = self.fig.add_subplot(gs[2 * i, 1])
+        ax2 = self.fig.add_subplot(gs[2 * i + 1, 1])
+        ax3 = self.fig.add_subplot(gs[2 * i:2 * i + 1, 0])
+        return [ax1, ax2, ax3]
+
+    def p_update(self, j):
+        for key in self.simulations:
             sim = self.simulations[key]
             data = sim.update()
-            self.scatters[i].set_offsets(data)
+            self.scatters[key].set_offsets(data)
 
-        return self.scatters
+        return list(self.scatters.values())
+
+    def f_update(self, j):
+        for key in self.simulations:
+            sim = self.simulations[key]
+            x = sim.x_range
+            y = sim.pressure()
+            self.plots[key].set_data(x, y)
+
+        return list(self.plots.values())
 
 
 class Simulation:
-    def __init__(self, p0=1, l=1, f=1, n=100, width=1, height=1):
+    def __init__(self, p0=1, l=1, f=1, n=100, width=2, height=1):
         """Initialise the simulation
 
         :param p0: Pressure of the sound wave
@@ -104,10 +167,15 @@ class Simulation:
         self.w = 2 * pi * f
         self.t = 0
         self.interval = self.width / 100
+        self.x_range = np.linspace(0, self.width)
 
-        for i in range(self.n):
+        for i in range(self.n - 1):
             x, y = self.random_position()
             self.particles.append(Particle(x, y, self.p0, self.k, self.w))
+
+        # Always put 1 particle in the middle to highlight
+        self.particles.append(Particle(self.width / 2, self.height / 2,
+                                       self.p0, self.k, self.w))
 
     def initial_positions(self):
         x = [p.x0 for p in self.particles]
@@ -133,35 +201,20 @@ class Simulation:
     def random_position(self):
         y = rand() * self.height
         x = rand() * (self.width + 2 * self.p0) - self.p0
-
-        # How many half-wavelengths fit in the box
-        # n_regions = floor(self.width / (self.l / 2))
-        # residual_width = self.width - n_regions * self.l / 2
-        # residual_frac = residual_width / self.width
-        # if n_regions > 0:
-        #     offset = (self.width - residual_width) / n_regions
-        # else:
-        #     offset = 0
-        # r = floor(rand() * (n_regions + residual_frac))
-        # if r < n_regions:
-        #     x = sample_sin(self.k) + r * offset
-        # else:
-        #     x = sample_sin(self.k, residual_width) + n_regions * offset
-
         return x, y
+
+    def pressure(self):
+        return self.p0 * sin(self.k * self.x_range - self.w * self.t)
 
 
 if __name__ == '__main__':
     # sim = Simulation(0.1, 1, 0.5, 2000, width=2)
     sim = Animator()
-    sim.add_simulation(1, p0=0.1, l=1, f=0.5, n=2000, width=2)
-    # sim.add_simulation(2, p0=0.5, l=1, f=0.5, n=2000, width=2)
-    sim.add_simulation(3, p0=0.5, l=0.5, f=1, n=2000, width=2)
+    # sim.add_simulation(1, p0=0.1, l=0.5, f=0.5, n=1000)
+    sim.add_simulation(2, p0=0.5, l=1, f=1, n=1000)
+    # sim.add_simulation(3, p0=0.5, l=0.5, f=1, n=1000, width=2)
     anim = sim.run()
     out_dir = './output/'
     filename = os.path.join(out_dir, 'animation.gif')
-    anim.save(filename,
-              writer='imagemagick', fps=30)
-
-    # print(sim.random_position())
-    # sim.show_init()
+    # anim.save(filename,
+    #           writer='imagemagick', fps=30)
