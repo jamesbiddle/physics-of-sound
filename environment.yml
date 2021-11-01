@@ -1,0 +1,6 @@
+name: sound-environment
+channels:
+  - conda-forge
+dependencies:
+  - numpy
+  - matplotlib
