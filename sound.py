@@ -4,7 +4,17 @@ from numpy.random import rand
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from matplotlib.widgets import Slider
+# from ipywidgets import interact, interactive, fixed, interact_manual
+from math import ceil
 import os
+from math import gcd
+
+
+def find_lcm(array):
+    lcm = 1
+    for i in array:
+        lcm = lcm*i//gcd(lcm, i)
+    return lcm
 
 
 class Particle:
@@ -42,30 +52,29 @@ class Animator:
         del self.simulations[key]
 
     def run(self):
-        # Close all currently running simulations
-        plt.close('all')
         self.setup_plot()
-        self.p_animation = animation.FuncAnimation(self.fig,
-                                                   self.p_update,
-                                                   interval=20,
-                                                   repeat=True,
-                                                   repeat_delay=5,
-                                                   frames=100,
-                                                   blit=True)
+        frames = self._get_interval()
+        self.animation = animation.FuncAnimation(self.fig,
+                                                 self.update,
+                                                 interval=20,
+                                                 repeat=True,
+                                                 repeat_delay=5,
+                                                 frames=frames,
+                                                 blit=True)
 
-        self.f_animation = animation.FuncAnimation(self.fig,
-                                                   self.f_update,
-                                                   interval=20,
-                                                   repeat=True,
-                                                   repeat_delay=5,
-                                                   frames=100,
-                                                   blit=True)
+        return self.animation
 
-        # plt.show()
-        return self.fig
-
-    def get_interval(self):
-        periods = [2 * pi / s.w for s in self.simulations]
+    def _get_interval(self):
+        periods = [1 / self.simulations[key].f
+                   for key in self.simulations]
+        print(periods)
+        intervals = [self.simulations[key].interval
+                     for key in self.simulations]
+        frames = [round(T / i) for (T, i) in zip(periods, intervals)]
+        print(frames)
+        frames = find_lcm(frames)
+        print(frames)
+        return frames
 
     def setup_plot(self):
         n_sim = len(self.simulations)
@@ -128,22 +137,17 @@ class Animator:
         ax3 = self.fig.add_subplot(gs[2 * i:2 * i + 1, 0])
         return [ax1, ax2, ax3]
 
-    def p_update(self, j):
+    def update(self, j):
         for key in self.simulations:
             sim = self.simulations[key]
             data = sim.update()
             self.scatters[key].set_offsets(data)
 
-        return list(self.scatters.values())
-
-    def f_update(self, j):
-        for key in self.simulations:
-            sim = self.simulations[key]
             x = sim.x_range
             y = sim.pressure()
             self.plots[key].set_data(x, y)
 
-        return list(self.plots.values())
+        return list(self.scatters.values()) + list(self.plots.values())
 
 
 class Simulation:
@@ -170,7 +174,7 @@ class Simulation:
         self.k = 2 * pi / l
         self.w = 2 * pi * f
         self.t = 0
-        self.interval = self.width / 100
+        self.interval = 0.01
         self.x_range = np.linspace(0, self.width)
 
         for i in range(self.n - 1):
@@ -212,13 +216,17 @@ class Simulation:
 
 
 if __name__ == '__main__':
-    # sim = Simulation(0.1, 1, 0.5, 2000, width=2)
     sim = Animator()
-    sim.add_simulation()
+    sim.add_simulation(f=3)
+    sim.add_simulation(f=2)
     anim = sim.run()
-    plt.show()
+    # plt.show()
 
     out_dir = './output/'
-    filename = os.path.join(out_dir, 'animation.gif')
+    filename = os.path.join(out_dir, 'animation.html')
+    html = anim.to_html5_video()
+    with open(filename, 'w') as f:
+        f.write(html)
+    plt.close('all')
     # anim.save(filename,
     #           writer='imagemagick', fps=30)
