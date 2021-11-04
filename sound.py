@@ -4,7 +4,8 @@ from numpy.random import rand
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from matplotlib.widgets import Slider
-# from ipywidgets import interact, interactive, fixed, interact_manual
+from ipywidgets import interact, interact_manual
+from ipywidgets import FloatSlider
 from math import ceil
 import os
 from math import gcd
@@ -42,6 +43,7 @@ class Animator:
         self.plots = {}
         self.widgets = {}
 
+        self.anim = None
         self.key = 1
 
     def add_simulation(self, *args, **kwargs):
@@ -53,18 +55,30 @@ class Animator:
 
     def run(self):
         self.setup_plot()
-        frames = self._get_interval()
-        self.animation = animation.FuncAnimation(self.fig,
-                                                 self.update,
-                                                 interval=20,
-                                                 repeat=True,
-                                                 repeat_delay=5,
-                                                 frames=frames,
-                                                 blit=True)
+        # for sim in self.simulations():
+        interact(self.animate,
+                 p0=FloatSlider(min=0, max=1, step=0.1, value=0.5, continuous_update=False),
+                 # l=FloatSlider(min=0.1, max=1, step=0.1, value=0.5, continuous_update=False),
+                 f=FloatSlider(min=0.1, max=1, step=0.1, value=0.5, continuous_update=False))
 
-        return self.animation
+    def animate(self, p0=None, l=None, f=None):
+        if self.anim is not None:
+            self.anim.event_source.stop()
+        # frames = self._get_interval()
+        frames = 200
+        self.anim = animation.FuncAnimation(self.fig,
+                                            self.update,
+                                            fargs=(p0, l, f),
+                                            interval=40,
+                                            repeat=True,
+                                            # frames=frames,
+                                            blit=True)
+        self.anim.frame_seq = self.anim.new_frame_seq()
+        self.anim.event_source.start()
+        plt.show()
+        # return self.anim
 
-    def _get_interval(self):
+    def _get_interval(self, max_frames=200):
         periods = [1 / self.simulations[key].f
                    for key in self.simulations]
         print(periods)
@@ -74,19 +88,19 @@ class Animator:
         print(frames)
         frames = find_lcm(frames)
         print(frames)
-        return frames
+        return min(frames, max_frames)
 
     def setup_plot(self):
         n_sim = len(self.simulations)
-        widths = [1, 15]
+        # widths = [1, 15]
         heights = n_sim * [4, 1]
 
         self.fig = plt.figure(constrained_layout=True)
-        gs = self.fig.add_gridspec(2 * n_sim, 2,
-                                   width_ratios=widths,
+        gs = self.fig.add_gridspec(2 * n_sim,
+                                   # width_ratios=widths,
                                    height_ratios=heights)
         for i, key in enumerate(self.simulations):
-            ax_sim, ax_func, ax_slider = self.add_sim_grid(gs, i)
+            ax_sim, ax_func = self.add_sim_grid(gs, i)
 
             # Setup particle sim
             sim = self.simulations[key]
@@ -107,8 +121,8 @@ class Animator:
             ax_func.set_ylabel('Pressure')
             ax_func.set_xlabel('Position')
 
-            # Set slider bars
-            self.widgets[key] = self.add_slider(ax_slider, key)
+            # # Set slider bars
+            # self.widgets[key] = self.add_slider(ax_slider, key)
 
     def add_slider(self, ax, key):
         sim = self.simulations[key]
@@ -132,14 +146,14 @@ class Animator:
         return p_slider
 
     def add_sim_grid(self, gs, i):
-        ax1 = self.fig.add_subplot(gs[2 * i, 1])
-        ax2 = self.fig.add_subplot(gs[2 * i + 1, 1])
-        ax3 = self.fig.add_subplot(gs[2 * i:2 * i + 1, 0])
-        return [ax1, ax2, ax3]
+        ax1 = self.fig.add_subplot(gs[2 * i, 0])
+        ax2 = self.fig.add_subplot(gs[2 * i + 1, 0])
+        return [ax1, ax2]
 
-    def update(self, j):
+    def update(self, i, p0=None, l=None, f=None):
         for key in self.simulations:
             sim = self.simulations[key]
+            sim.update_parameters(p0, l, f)
             data = sim.update()
             self.scatters[key].set_offsets(data)
 
@@ -174,8 +188,8 @@ class Simulation:
         self.k = 2 * pi / l
         self.w = 2 * pi * f
         self.t = 0
-        self.interval = 0.01
-        self.x_range = np.linspace(0, self.width)
+        self.interval = 0.05
+        self.x_range = np.linspace(0, self.width, 100 * self.width)
 
         for i in range(self.n - 1):
             x, y = self.random_position()
@@ -214,19 +228,43 @@ class Simulation:
     def pressure(self):
         return self.p0 * sin(self.k * self.x_range - self.w * self.t)
 
+    def update_parameters(self, p=None, l=None, f=None):
+        if p is None:
+            p = self.p0
+        if l is None:
+            l = self.l
+        if f is None:
+            f = self.f
+
+        k = 2 * pi / l
+        w = 2 * pi * f
+
+        self.p0 = p
+        self.l = l
+        self.f = f
+        self.k = k
+        self.w = w
+
+        for part in self.particles:
+            part.p = p
+            part.w = w
+            part.k = k
+
 
 if __name__ == '__main__':
     sim = Animator()
     sim.add_simulation(f=3)
-    sim.add_simulation(f=2)
-    anim = sim.run()
+    sim.run()
+    # sim.add_simulation(f=2)
+    # sim.setup_plot()
+    # anim = sim.animate(0.5, 0.5, 0.5)
     # plt.show()
 
-    out_dir = './output/'
-    filename = os.path.join(out_dir, 'animation.html')
-    html = anim.to_html5_video()
-    with open(filename, 'w') as f:
-        f.write(html)
-    plt.close('all')
+    # out_dir = './output/'
+    # filename = os.path.join(out_dir, 'animation.html')
+    # html = anim.to_html5_video()
+    # with open(filename, 'w') as f:
+    #     f.write(html)
+    # plt.close('all')
     # anim.save(filename,
     #           writer='imagemagick', fps=30)
